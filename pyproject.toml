@@ -1,0 +1,13 @@
+
+
+[tool.poetry]
+name = 'BayesAnalyses'
+version = '0.1'
+description = ''
+
+[tool.poetry.dependencies]
+python = '*'
+
+[tool.poetry.dev-dependcies]
+pytest = '^3.4'
+
