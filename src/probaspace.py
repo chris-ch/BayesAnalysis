@@ -1,6 +1,9 @@
+import collections
 import itertools
 from collections import defaultdict
-from typing import Callable, Iterable, List, Any
+from numbers import Number
+import random
+from typing import Callable, Iterable, Any, Dict
 
 
 def powerset(iterable: Iterable[Any]) -> Iterable[Iterable[Any]]:
@@ -11,6 +14,11 @@ def powerset(iterable: Iterable[Any]) -> Iterable[Iterable[Any]]:
     """
     s = list(iterable)
     return itertools.chain.from_iterable(itertools.combinations(s, r) for r in range(len(s) + 1))
+
+
+def cardinality(iterable: Iterable) -> int:
+    d = collections.deque(enumerate(iterable, 1), maxlen=1)
+    return d[0][0] if d else 0
 
 
 class Event(object):
@@ -31,7 +39,7 @@ class Universe(object):
         self._items = list(items)
 
     @property
-    def items(self) -> List[Event]:
+    def items(self) -> Iterable[Event]:
         return self._items
 
     def size(self) -> int:
@@ -51,7 +59,7 @@ class SigmaAlgebraItem(object):
         self._items = list(items)
 
     @property
-    def items(self) -> List[Event]:
+    def items(self) -> Iterable[Event]:
         return self._items
 
     def __repr__(self):
@@ -65,7 +73,7 @@ class SigmaAlgebra(object):
         self._items = [SigmaAlgebraItem(universe_items) for universe_items in items]
 
     @property
-    def items(self) -> List[SigmaAlgebraItem]:
+    def items(self) -> Iterable[SigmaAlgebraItem]:
         return self._items
 
     @property
@@ -82,7 +90,7 @@ class Probability(object):
         self._sigma_algebra = sigma_algebra
 
     def value(self, sigma_algebra_item: SigmaAlgebraItem) -> float:
-        return float(len(sigma_algebra_item.items) / float(self._sigma_algebra.universe.size()))
+        return float(cardinality(sigma_algebra_item.items) / float(self._sigma_algebra.universe.size()))
 
 
 class RandomVariable(object):
@@ -142,16 +150,37 @@ class ProbabilityMass(object):
         self._buckets = defaultdict(int)
 
     @property
-    def buckets(self):
+    def buckets(self) -> Dict[Number, int]:
         return self._buckets
 
     @property
-    def normalized_buckets(self):
+    def normalized_buckets(self) -> Dict[Number, float]:
         total_occurences = float(sum(self._buckets.values()))
-        return {bucket: float(occurence) / total_occurences for bucket, occurence in self._buckets.items()}
+        return {bucket: float(occurence) / total_occurences for bucket, occurence in self.buckets.items()}
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return str({bucket: '{:.2f} %'.format(100. * occurence) for bucket, occurence in self.normalized_buckets.items()})
+
+    def _run(self) -> Number:
+        total = sum(self.buckets.values())
+        target = random.randint(1, total)
+        current = 0
+        target_key = -1
+        items = self.buckets.items()
+        for key, value in sorted(items, key=lambda item: item[0]):
+            current += value
+            if target <= current:
+                target_key = key
+                break
+
+        return target_key
+
+    def runs(self, count) -> Dict[int, float]:
+        buckets = defaultdict(int)
+        for i in range(count):
+            buckets[self._run()] += 1
+
+        return {k: '{:.2f} %'.format(100. * float(buckets[k]) / sum(buckets.values())) for k in sorted(buckets.keys())}
 
 
 class ProbabilityMassUniform(ProbabilityMass):
@@ -162,33 +191,21 @@ class ProbabilityMassUniform(ProbabilityMass):
             self.buckets[rv.value(item)] = 1
 
 
-class ProbabilityMassSum(ProbabilityMass):
+class ProbabilityMassMixed(ProbabilityMass):
 
-    def __init__(self, *pmfs: ProbabilityMass):
+    def __init__(self, *pmfs: ProbabilityMass, mix_func: Callable[[Iterable[Number]], Number]):
         super().__init__()
+        self._pmfs = pmfs
+        self._mix_func = mix_func
         for items in itertools.product(*(pmf.buckets.items() for pmf in pmfs)):
             weight = 1
             for bucket in items:
                 weight *= bucket[1]
-            self.buckets[sum([bucket[0] for bucket in items])] += weight
+            self.buckets[mix_func((bucket[0] for bucket in items))] += weight
 
-
-class ProbabilityMassMax(ProbabilityMass):
-
-    def __init__(self, *pmfs: ProbabilityMass):
-        super().__init__()
-        for items in itertools.product(*(pmf.buckets.items() for pmf in pmfs)):
-            target_bucket, occurence = sorted(items, key=lambda item: item[0], reverse=True)[0]
-            self.buckets[target_bucket] += occurence
-
-
-class ProbabilityMassSum0(ProbabilityMass):
-
-    def __init__(self, *random_variables: RandomVariable):
-        super().__init__()
-        self._random_variables = random_variables
-        for items in itertools.product(*(rv.universe.items for rv in random_variables)):
-            self.buckets[sum(rv.value(item) for rv, item in zip(random_variables, items))] += 1
+    def _run(self) -> Number:
+        # overrides
+        return self._mix_func((pmf._run() for pmf in self._pmfs))
 
 
 def make_power_set(universe: Universe) -> SigmaAlgebra:

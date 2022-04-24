@@ -70,20 +70,25 @@ def main():
         logging.info('cdf({}) = {}'.format(val, dist2.value(val)))
 
     logging.info('----------- probability mass')
-    pm = probaspace.ProbabilityMassUniform(rv)
-    logging.info('data: {}'.format(pm.buckets))
-
-    logging.info('----------- probability mass sum 0')
-    pms = probaspace.ProbabilityMassSum0(rv, rv, rv)
-    logging.info('data: {}'.format(pms))
+    pm_d6 = probaspace.ProbabilityMassUniform(rv)
+    logging.info('data: {}'.format(pm_d6.buckets))
+    logging.info('simul: {}'.format(str(pm_d6.runs(10000))))
 
     logging.info('----------- probability mass sum')
-    pms = probaspace.ProbabilityMassSum(pm, pm, pm)
-    logging.info('data: {}'.format(pms))
+    pm_sum_3d6 = probaspace.ProbabilityMassMixed(pm_d6, pm_d6, pm_d6, mix_func=sum)
+    logging.info('data: {}'.format(pm_sum_3d6))
+    logging.info('simul: {}'.format(str(pm_sum_3d6.runs(10000))))
 
     logging.info('----------- probability mass max')
-    pmm = probaspace.ProbabilityMassMax(pms, pms, pms, pms)
-    logging.info('data: {}'.format(pmm))
+    pm_max_3d6_5 = probaspace.ProbabilityMassMixed(pm_sum_3d6, pm_sum_3d6, pm_sum_3d6, pm_sum_3d6, pm_sum_3d6, mix_func=max)
+    logging.info('----------- created')
+    logging.info('data: {}'.format(pm_max_3d6_5))
+    logging.info('----------- computed')
+    logging.info('simul: {}'.format(str(pm_max_3d6_5.runs(10000))))
+    #pmm_simul = probaspace.simul()
+    #pmm = probaspace.ProbabilityMassMixed(pms, pms, pms, pms, pms, mix_func=max)
+    #logging.info('data: {}'.format(pmm))
+
 
 
 if __name__ == '__main__':
