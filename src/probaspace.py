@@ -1,9 +1,29 @@
 import collections
 import itertools
+import logging
+import math
 from collections import defaultdict
 from numbers import Number
 import random
-from typing import Callable, Iterable, Any, Dict
+from typing import Callable, Iterable, Any, Dict, List
+
+
+class UnitSegmentValue(object):
+    def __init__(self, value: float):
+        if 0. <= value <= 1.:
+            self._value = value
+        else:
+            raise ValueError('{} not in unit segment'.format(value))
+
+    @property
+    def value(self):
+        return self._value
+
+    def __repr__(self):
+        return repr(self.value)
+
+    def __add__(self, other: 'UnitSegmentValue'):
+        return UnitSegmentValue(self.value + other.value)
 
 
 def powerset(iterable: Iterable[Any]) -> Iterable[Iterable[Any]]:
@@ -35,42 +55,52 @@ class Event(object):
 
 class Universe(object):
 
-    def __init__(self, items: Iterable[Event]):
-        self._items = list(items)
+    def __init__(self, events: Iterable[Event]):
+        self._events = sorted(events, key=lambda event: event.name)
 
     @property
-    def items(self) -> Iterable[Event]:
-        return self._items
+    def events(self) -> List[Event]:
+        return self._events
 
     def size(self) -> int:
-        return len(self._items)
+        return len(self._events)
 
     @classmethod
     def from_labels(cls, *params: str) -> 'Universe':
         return Universe((Event(label) for label in params))
 
-    def create_random_variable(self, label, likelihood: Callable[[Event], float]) -> 'RandomVariable':
+    @classmethod
+    def from_range(cls, start, stop):
+        return Universe((Event(str(pos)) for pos in range(start, stop)))
+
+    def create_random_variable_single(self, label, likelihood: Callable[[Event], float]) -> 'RandomVariable':
         return RandomVariable(label, likelihood, self)
+
+    def create_random_variables(self, likelihood: Callable[[Event], float]) -> Iterable['RandomVariable']:
+        return (RandomVariable(str(event), event_mapper=likelihood, universe=self) for event in self.events)
+
+    def fetch(self, event_name: str):
+        return [event for event in self.events if event.name == event_name][0]
 
 
 class SigmaAlgebraItem(object):
 
-    def __init__(self, items: Iterable[Event]):
-        self._items = list(items)
+    def __init__(self, events: Iterable[Event]):
+        self._events = list(events)
 
     @property
-    def items(self) -> Iterable[Event]:
-        return self._items
+    def events(self) -> Iterable[Event]:
+        return self._events
 
     def __repr__(self):
-        return repr(self.items)
+        return repr(self.events)
 
 
 class SigmaAlgebra(object):
 
-    def __init__(self, universe: Universe, items: Iterable[Iterable[Event]]):
+    def __init__(self, universe: Universe, events_set: Iterable[Iterable[Event]]):
         self._universe = universe
-        self._items = [SigmaAlgebraItem(universe_items) for universe_items in items]
+        self._items = [SigmaAlgebraItem(events) for events in events_set]
 
     @property
     def items(self) -> Iterable[SigmaAlgebraItem]:
@@ -89,19 +119,19 @@ class Probability(object):
     def __init__(self, sigma_algebra: SigmaAlgebra):
         self._sigma_algebra = sigma_algebra
 
-    def value(self, sigma_algebra_item: SigmaAlgebraItem) -> float:
-        return float(cardinality(sigma_algebra_item.items) / float(self._sigma_algebra.universe.size()))
+    def evaluate(self, sigma_algebra_item: SigmaAlgebraItem) -> UnitSegmentValue:
+        return UnitSegmentValue(float(cardinality(sigma_algebra_item.events) / float(self._sigma_algebra.universe.size())))
 
 
 class RandomVariable(object):
 
-    def __init__(self, description: str, item_mapper: Callable[[Event], float], universe: Universe):
+    def __init__(self, description: str, event_mapper: Callable[[Event], float], universe: Universe):
         self._description = description
-        self._item_mapper = item_mapper
+        self._event_mapper = event_mapper
         self._universe = universe
 
-    def value(self, universe_item: Event) -> float:
-        return self._item_mapper(universe_item)
+    def evaluate(self, event: Event) -> float:
+        return self._event_mapper(event)
 
     @property
     def universe(self) -> Universe:
@@ -116,98 +146,87 @@ class RandomVariable(object):
 
 
 class CumulativeDistributionFunction(object):
+
     def __init__(self, random_variable: RandomVariable, sigma_algebra: SigmaAlgebra):
         self._random_variable = random_variable
         self._sigma_algebra = sigma_algebra
 
-    def value(self, value: float) -> float:
-        items = list()
-        for item in self._sigma_algebra.universe.items:
-            if self._random_variable.value(item) <= value:
-                items.append(item)
+    def evaluate(self, value: float) -> UnitSegmentValue:
+        events = list()
+        for event in self._sigma_algebra.universe.events:
+            if self._random_variable.evaluate(event) <= value:
+                events.append(event)
 
-        return Probability(self._sigma_algebra).value(SigmaAlgebraItem(items))
-
-
-class CombineSumCDF(object):
-    def __init__(self, rv1: RandomVariable, rv2: RandomVariable, sigma_algebra: SigmaAlgebra):
-        self._rv1 = rv1
-        self._rv2 = rv2
-        self._sigma_algebra = sigma_algebra
-
-    def value(self, value: float) -> float:
-        items = list()
-        for item in self._sigma_algebra.universe.items:
-            if self._rv1.value(item) + self._rv2.value(item) <= value:
-                items.append(item)
-
-        return Probability(self._sigma_algebra).value(SigmaAlgebraItem(items))
-
-
-class ProbabilityMass(object):
-
-    def __init__(self):
-        self._buckets = defaultdict(int)
-
-    @property
-    def buckets(self) -> Dict[Number, int]:
-        return self._buckets
-
-    @property
-    def normalized_buckets(self) -> Dict[Number, float]:
-        total_occurences = float(sum(self._buckets.values()))
-        return {bucket: float(occurence) / total_occurences for bucket, occurence in self.buckets.items()}
+        return Probability(self._sigma_algebra).evaluate(SigmaAlgebraItem(events))
 
     def __repr__(self) -> str:
-        return str({bucket: '{:.2f} %'.format(100. * occurence) for bucket, occurence in self.normalized_buckets.items()})
+        return str({event: '{:.2f} %'.format(100. * self.evaluate(float(event.name)).value) for event in self.universe.events})
 
-    def _run(self) -> Number:
-        total = sum(self.buckets.values())
-        target = random.randint(1, total)
-        current = 0
-        target_key = -1
-        items = self.buckets.items()
-        for key, value in sorted(items, key=lambda item: item[0]):
-            current += value
-            if target <= current:
-                target_key = key
+    @property
+    def universe(self) -> Universe:
+        return self._sigma_algebra.universe
+
+    def make_probability_density(self, start: float, stop: float, step: float) -> Dict[float, UnitSegmentValue]:
+        density = dict()
+        count = (stop - start) / step
+        for index in range(int(count)):
+            value_prev = step * index
+            value_next = step * (index + 1)
+            diff = self.evaluate(value_next).value - self.evaluate(value_prev).value
+            if diff != 0:
+                density[value_next] = UnitSegmentValue(diff)
+
+        return density
+
+    def _run(self) -> Event:
+        target = random.random()
+        target_event = None
+        for event in self._sigma_algebra.universe.events:
+            target_event = event
+            if self.evaluate(float(event.name)).value >= target:
                 break
 
-        return target_key
+        return target_event
 
     def runs(self, count) -> Dict[int, float]:
         buckets = defaultdict(int)
         for i in range(count):
             buckets[self._run()] += 1
 
-        return {k: '{:.2f} %'.format(100. * float(buckets[k]) / sum(buckets.values())) for k in sorted(buckets.keys())}
+        return {k: '{:.2f} %'.format(100. * float(buckets[k]) / sum(buckets.values())) for k in sorted(buckets.keys(), key=lambda b: b.name)}
 
 
-class ProbabilityMassUniform(ProbabilityMass):
+class CombineSumCDF(object):
 
-    def __init__(self, rv: RandomVariable):
-        super().__init__()
-        for item in rv.universe.items:
-            self.buckets[rv.value(item)] = 1
+    def __init__(self, rv1: RandomVariable, rv2: RandomVariable, sigma_algebra: SigmaAlgebra):
+        self._rv1 = rv1
+        self._rv2 = rv2
+        self._sigma_algebra = sigma_algebra
+
+    def evaluate(self, value: float) -> UnitSegmentValue:
+        occurences = 0
+        for event1, event2 in itertools.product(self.universe.events, self.universe.events):
+            if self._rv1.evaluate(event1) + self._rv2.evaluate(event2) <= value:
+                occurences += 1
+
+        return UnitSegmentValue(float(occurences) / (len(self.universe.events) * len(self.universe.events)))
+
+    @property
+    def universe(self) -> Universe:
+        return self._sigma_algebra.universe
+
+    def make_probability_density(self, start: float, stop: float, step: float) -> Dict[float, UnitSegmentValue]:
+        density = dict()
+        count = (stop - start) / step
+        for index in range(int(count)):
+            value_prev = step * index
+            value_next = step * (index + 1)
+            diff = self.evaluate(value_next).value - self.evaluate(value_prev).value
+            if diff != 0:
+                density[value_next] = UnitSegmentValue(diff)
+
+        return density
 
 
-class ProbabilityMassMixed(ProbabilityMass):
-
-    def __init__(self, *pmfs: ProbabilityMass, mix_func: Callable[[Iterable[Number]], Number]):
-        super().__init__()
-        self._pmfs = pmfs
-        self._mix_func = mix_func
-        for items in itertools.product(*(pmf.buckets.items() for pmf in pmfs)):
-            weight = 1
-            for bucket in items:
-                weight *= bucket[1]
-            self.buckets[mix_func((bucket[0] for bucket in items))] += weight
-
-    def _run(self) -> Number:
-        # overrides
-        return self._mix_func((pmf._run() for pmf in self._pmfs))
-
-
-def make_power_set(universe: Universe) -> SigmaAlgebra:
-    return SigmaAlgebra(universe, powerset(universe.items))
-
+def make_sigma_algebra_full(universe: Universe) -> SigmaAlgebra:
+    return SigmaAlgebra(universe, powerset(universe.events))
