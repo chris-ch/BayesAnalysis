@@ -147,6 +147,24 @@ class RandomVariable(object):
 
 class CumulativeDistributionFunction(object):
 
+    def make_probability_density(self, start: float, stop: float, step: float) -> Dict[float, UnitSegmentValue]:
+        density = dict()
+        count = (stop - start) / step
+        for index in range(int(count)):
+            value_prev = step * index
+            value_next = step * (index + 1)
+            diff = self.evaluate(value_next).value - self.evaluate(value_prev).value
+            if diff != 0:
+                density[value_next] = UnitSegmentValue(diff)
+
+        return density
+
+    def evaluate(self, value: float) -> UnitSegmentValue:
+        pass
+
+
+class SimpleCumulativeDistributionFunction(CumulativeDistributionFunction):
+
     def __init__(self, random_variable: RandomVariable, sigma_algebra: SigmaAlgebra):
         self._random_variable = random_variable
         self._sigma_algebra = sigma_algebra
@@ -160,11 +178,23 @@ class CumulativeDistributionFunction(object):
         return Probability(self._sigma_algebra).evaluate(SigmaAlgebraItem(events))
 
     def __repr__(self) -> str:
-        return str({event: '{:.2f} %'.format(100. * self.evaluate(float(event.name)).value) for event in self.universe.events})
+        return str({event: '{:.2f} %'.format(100. * self.evaluate(float(event.name)).value) for event in self._sigma_algebra.universe.events})
 
-    @property
-    def universe(self) -> Universe:
-        return self._sigma_algebra.universe
+
+class CombinedCumulativeDistributionFunction(CumulativeDistributionFunction):
+
+    def __init__(self, rv1: RandomVariable, rv2: RandomVariable, sigma_algebra: SigmaAlgebra):
+        self._rv1 = rv1
+        self._rv2 = rv2
+        self._sigma_algebra = sigma_algebra
+
+    def evaluate(self, value: float) -> UnitSegmentValue:
+        occurences = 0
+        for event1, event2 in itertools.product(self._sigma_algebra.universe.events, self._sigma_algebra.universe.events):
+            if self._rv1.evaluate(event1) + self._rv2.evaluate(event2) <= value:
+                occurences += 1
+
+        return UnitSegmentValue(float(occurences) / (len(self._sigma_algebra.universe.events) * len(self._sigma_algebra.universe.events)))
 
     def make_probability_density(self, start: float, stop: float, step: float) -> Dict[float, UnitSegmentValue]:
         density = dict()
@@ -194,38 +224,6 @@ class CumulativeDistributionFunction(object):
             buckets[self._run()] += 1
 
         return {k: '{:.2f} %'.format(100. * float(buckets[k]) / sum(buckets.values())) for k in sorted(buckets.keys(), key=lambda b: b.name)}
-
-
-class CombineSumCDF(object):
-
-    def __init__(self, rv1: RandomVariable, rv2: RandomVariable, sigma_algebra: SigmaAlgebra):
-        self._rv1 = rv1
-        self._rv2 = rv2
-        self._sigma_algebra = sigma_algebra
-
-    def evaluate(self, value: float) -> UnitSegmentValue:
-        occurences = 0
-        for event1, event2 in itertools.product(self.universe.events, self.universe.events):
-            if self._rv1.evaluate(event1) + self._rv2.evaluate(event2) <= value:
-                occurences += 1
-
-        return UnitSegmentValue(float(occurences) / (len(self.universe.events) * len(self.universe.events)))
-
-    @property
-    def universe(self) -> Universe:
-        return self._sigma_algebra.universe
-
-    def make_probability_density(self, start: float, stop: float, step: float) -> Dict[float, UnitSegmentValue]:
-        density = dict()
-        count = (stop - start) / step
-        for index in range(int(count)):
-            value_prev = step * index
-            value_next = step * (index + 1)
-            diff = self.evaluate(value_next).value - self.evaluate(value_prev).value
-            if diff != 0:
-                density[value_next] = UnitSegmentValue(diff)
-
-        return density
 
 
 def make_sigma_algebra_full(universe: Universe) -> SigmaAlgebra:

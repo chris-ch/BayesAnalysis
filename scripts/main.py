@@ -30,12 +30,12 @@ def main():
         return int(str(item))
 
     rv = probaspace.RandomVariable('rv', event_mapper=die, universe=universe)
-    dist1 = probaspace.CumulativeDistributionFunction(rv, sa)
+    dist1 = probaspace.SimpleCumulativeDistributionFunction(rv, sa)
     for val in (float(i) / 5. for i in range(0, 35)):
         logging.info('cdf({}) = {}'.format(val, dist1.evaluate(val)))
 
     logging.info('----------- combined CDF')
-    dist2 = probaspace.CombineSumCDF(rv, rv, sa)
+    dist2 = probaspace.CombinedCumulativeDistributionFunction(rv, rv, sa)
     for val in (float(i)/ 5. for i in range(0, 65)):
         logging.info('cdf({}) = {}'.format(val, dist2.evaluate(val)))
 
