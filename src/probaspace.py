@@ -5,7 +5,7 @@ import math
 from collections import defaultdict
 from numbers import Number
 import random
-from typing import Callable, Iterable, Any, Dict, List, Tuple
+from typing import Callable, Iterable, Any, Dict, List, Tuple, Union
 
 
 class UnitSegmentValue(object):
@@ -42,21 +42,28 @@ def cardinality(iterable: Iterable) -> int:
 
 
 class Event(object):
+
     def __init__(self, label: str):
         self._label = label
 
     def __repr__(self) -> str:
         return self._label
 
+    def __eq__(self, other):
+        return isinstance(other, Event) and self.name == other.name
+
+    def __hash__(self):
+        return self.name.__hash__()
+
     @property
-    def name(self):
+    def name(self) -> str:
         return self._label
 
 
 class Universe(object):
 
-    def __init__(self, events: Iterable[Event]):
-        self._events = sorted(events, key=lambda event: event.name)
+    def __init__(self):
+        self._events = list()
 
     @property
     def events(self) -> List[Event]:
@@ -66,12 +73,20 @@ class Universe(object):
         return len(self._events)
 
     @classmethod
-    def from_labels(cls, *params: str) -> 'Universe':
-        return Universe((Event(label) for label in params))
+    def from_labels(cls, *labels: str) -> 'Universe':
+        return cls.from_iterable(labels)
 
     @classmethod
-    def from_range(cls, start, stop):
-        return Universe((Event(str(pos)) for pos in range(start, stop)))
+    def from_range(cls, start, stop) -> 'Universe':
+        return cls.from_iterable((str(pos) for pos in range(start, stop)))
+
+    @classmethod
+    def from_iterable(cls, event_names: Iterable[str]) -> 'Universe':
+        universe = Universe()
+        for event_name in event_names:
+            universe.event(event_name)
+
+        return universe
 
     def create_random_variable_single(self, label, likelihood: Callable[[Event], float]) -> 'RandomVariable':
         return RandomVariable(label, likelihood, self)
@@ -80,7 +95,21 @@ class Universe(object):
         return (RandomVariable(str(event), event_mapper=likelihood, universe=self) for event in self.events)
 
     def fetch(self, event_name: str):
-        return [event for event in self.events if event.name == event_name][0]
+        events = [event for event in self.events if event.name == event_name]
+        if len(events) == 0:
+            return None
+        elif len(events) == 1:
+            return events[0]
+        else:
+            return ValueError('event {} found multiple times'.format(event_name))
+
+    def event(self, event_name: str):
+        event = self.fetch(event_name)
+        if event is None:
+            event = Event(event_name)
+            self._events.append(event)
+
+        return event
 
 
 class SigmaAlgebraItem(object):
@@ -145,29 +174,13 @@ class RandomVariable(object):
         return self.description
 
 
-class CumulativeDistributionFunction(object):
-
-    def make_probability_density(self, start: float, stop: float, count: int) -> Dict[float, UnitSegmentValue]:
-        density = dict()
-        step = (stop - start) / count 
-        for index in range(int(count)):
-            value_prev = step * index
-            value_next = step * (index + 1)
-            diff = self.evaluate(value_next).value - self.evaluate(value_prev).value
-            if diff != 0:
-                density[value_next] = UnitSegmentValue(diff)
-
-        return density
+class DistributionFunction(object):
 
     def evaluate(self, value: float) -> UnitSegmentValue:
-        pass
-
-    @property
-    def events(self) -> List[Event]:
-        pass
+        return UnitSegmentValue(0.)
 
 
-class SimpleCumulativeDistributionFunction(CumulativeDistributionFunction):
+class SimpleDistributionFunction(DistributionFunction):
 
     def __init__(self, random_variable: RandomVariable, sigma_algebra: SigmaAlgebra):
         self._random_variable = random_variable
@@ -175,30 +188,53 @@ class SimpleCumulativeDistributionFunction(CumulativeDistributionFunction):
 
     def evaluate(self, value: float) -> UnitSegmentValue:
         events = list()
-        for event in self.events:
+        for event in self._sigma_algebra.universe.events:
             if self._random_variable.evaluate(event) <= value:
                 events.append(event)
 
         return Probability(self._sigma_algebra).evaluate(SigmaAlgebraItem(events))
 
-    @property
-    def events(self) -> List[Event]:
-        return self._sigma_algebra.universe.events
-        
     def __repr__(self) -> str:
         return str({event: '{:.2f} %'.format(100. * self.evaluate(float(event.name)).value) for event in self._sigma_algebra.universe.events})
 
 
-class CombinedCumulativeDistributionFunction(CumulativeDistributionFunction):
+def is_tuple_less_than(t1: Tuple[float], t2: Tuple[float]) -> bool:
+    return sum((True for v1, v2 in zip(t1, t2) if v1 > v2)) == 0
 
-    def __init__(self, *cdfs: CumulativeDistributionFunction, mix_func: Callable[[Iterable[float]], float]):
+
+class JointDistributionFunction(DistributionFunction):
+
+    def __init__(self, *rvs: RandomVariable, sigma_algebra: SigmaAlgebra):
+        self._rvs = rvs
+        self._sigma_algebra = sigma_algebra
+
+    def evaluate(self, values: Tuple[float]) -> UnitSegmentValue:
+        if len(values) != len(self._rvs):
+            raise ValueError('{} has wrong size, expected {}'.format(values, len(self._rvs)))
+
+        occurences = 0
+        total = 0
+        for events in itertools.product(*(self._sigma_algebra.universe.events for _ in self._rvs)):
+            total += 1
+            if is_tuple_less_than(tuple(float(event.name) for event in events), values):
+                occurences += 1
+
+        return UnitSegmentValue(float(occurences) / total)
+
+    def __repr__(self) -> str:
+        return str({events: '{:.2f} %'.format(100. * self.evaluate(tuple(float(event.name) for event in events)).value) for events in itertools.product(*(self._sigma_algebra.universe.events for _ in self._rvs))})
+
+
+class MixedDistributionFunction(DistributionFunction):
+
+    def __init__(self, *cdfs: SimpleDistributionFunction, mix_func: Callable[[Iterable[float]], float]):
         self._cdfs = cdfs
         self._mix_func = mix_func
 
     def evaluate(self, value: float) -> UnitSegmentValue:
         occurences = 0
         total = 0
-        for events in itertools.product(*(cdf.events for cdf in self._cdfs)):
+        for events in itertools.product(*(cdf._sigma_algebra.universe.events for cdf in self._cdfs)):
             cdf_event_pairs = zip(self._cdfs, events)
             total += 1
             if self._mix_func((cdf._random_variable.evaluate(event) for cdf, event in cdf_event_pairs)) <= value:
@@ -206,27 +242,19 @@ class CombinedCumulativeDistributionFunction(CumulativeDistributionFunction):
 
         return UnitSegmentValue(float(occurences) / total)
 
-    @property
-    def events(self) -> List[Tuple[Event]]:
-        return list(itertools.product(*(cdf.events for cdf in self._cdfs)))
-        
-    def _run(self) -> Event:
-        target = random.random()
-        target_event = None
-        for event in self._sigma_algebra.universe.events:
-            target_event = event
-            if self.evaluate(float(event.name)).value >= target:
-                break
-
-        return target_event
-
-    def runs(self, count) -> Dict[int, float]:
-        buckets = defaultdict(int)
-        for i in range(count):
-            buckets[self._run()] += 1
-
-        return {k: '{:.2f} %'.format(100. * float(buckets[k]) / sum(buckets.values())) for k in sorted(buckets.keys(), key=lambda b: b.name)}
-
 
 def make_sigma_algebra_full(universe: Universe) -> SigmaAlgebra:
     return SigmaAlgebra(universe, powerset(universe.events))
+
+
+def make_probability_density(distribution: Union[SimpleDistributionFunction, MixedDistributionFunction], start: float, stop: float, count: int) -> Dict[float, UnitSegmentValue]:
+    density = dict()
+    step = (stop - start) / count
+    for index in range(int(count)):
+        value_prev = step * index
+        value_next = step * (index + 1)
+        diff = distribution.evaluate(value_next).value - distribution.evaluate(value_prev).value
+        if diff != 0:
+            density[value_next] = UnitSegmentValue(diff)
+
+    return density

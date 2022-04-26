@@ -18,8 +18,8 @@ def smarties96(event: probaspace.Event) -> float:
 
 
 def main():
-    universe = probaspace.Universe.from_labels('1', '2', '3', '4', '5', '6')
-    sa = probaspace.make_sigma_algebra_full(universe)
+    sides_6 = probaspace.Universe.from_labels('1', '2', '3', '4', '5', '6')
+    sa = probaspace.make_sigma_algebra_full(sides_6)
     logging.info(str(sa.items))
     proba = probaspace.Probability(sa)
 
@@ -29,25 +29,27 @@ def main():
     def die(item: probaspace.Event) -> int:
         return int(str(item))
 
-    rv = probaspace.RandomVariable('rv', event_mapper=die, universe=universe)
-    dist1 = probaspace.SimpleCumulativeDistributionFunction(rv, sa)
+    rv_die6 = probaspace.RandomVariable('rv', event_mapper=die, universe=sides_6)
+    dist_die6 = probaspace.SimpleDistributionFunction(rv_die6, sa)
     for val in (float(i) / 5. for i in range(0, 35)):
-        logging.info('cdf({}) = {}'.format(val, dist1.evaluate(val)))
+        logging.info('cdf({}) = {}'.format(val, dist_die6.evaluate(val)))
+
+    logging.info('dist_die6: {}'.format(probaspace.make_probability_density(dist_die6, 0., 6.5, 35)))
+
+    joint = probaspace.JointDistributionFunction(rv_die6, rv_die6, sigma_algebra=sa)
+    logging.info('joint distribution {}'.format(joint))
 
     logging.info('----------- combined CDF sum 2x d6')
-    dist2 = probaspace.CombinedCumulativeDistributionFunction(dist1, dist1, mix_func=sum)
+    dist_2x_die6 = probaspace.MixedDistributionFunction(dist_die6, dist_die6, mix_func=sum)
     for val in (float(i)/ 5. for i in range(0, 65)):
-        logging.info('cdf({}) = {}'.format(val, dist2.evaluate(val)))
+        logging.info('cdf({}) = {}'.format(val, dist_2x_die6.evaluate(val)))
+
+    logging.info('dist_2x_die6: {}'.format(probaspace.make_probability_density(dist_2x_die6, 0., 12.5, 65)))
 
     logging.info('----------- combined CDF max 4x sum 2x d6')
     
-    dist3 = probaspace.CombinedCumulativeDistributionFunction(dist2, dist2, dist2, dist2, mix_func=max)
-    logging.info('----------- PDF 1')
-    logging.info('{}'.format(dist1.make_probability_density(0., 6.5, 35)))
-    logging.info('----------- PDF 2')
-    logging.info('{}'.format(dist2.make_probability_density(0., 12.5, 65)))
-    logging.info('----------- PDF 3')
-    logging.info('{}'.format(dist3.make_probability_density(0., 6.5, 35)))
+    dist_max_4x_2x_die6 = probaspace.MixedDistributionFunction(dist_2x_die6, dist_2x_die6, dist_2x_die6, dist_2x_die6, mix_func=max)
+    logging.info('dist_2x_die6: {}'.format(probaspace.make_probability_density(dist_max_4x_2x_die6, 0., 12.5, 65)))
 
     #logging.info('----------- probability mass sum')
     #pm_sum_3d6 = probaspace.ProbabilityMassMixed(pm_d6, pm_d6, pm_d6, mix_func=sum)
