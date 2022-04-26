@@ -147,9 +147,9 @@ class RandomVariable(object):
 
 class CumulativeDistributionFunction(object):
 
-    def make_probability_density(self, start: float, stop: float, step: float) -> Dict[float, UnitSegmentValue]:
+    def make_probability_density(self, start: float, stop: float, count: int) -> Dict[float, UnitSegmentValue]:
         density = dict()
-        count = (stop - start) / step
+        step = (stop - start) / count 
         for index in range(int(count)):
             value_prev = step * index
             value_next = step * (index + 1)
@@ -183,30 +183,20 @@ class SimpleCumulativeDistributionFunction(CumulativeDistributionFunction):
 
 class CombinedCumulativeDistributionFunction(CumulativeDistributionFunction):
 
-    def __init__(self, rv1: RandomVariable, rv2: RandomVariable, sigma_algebra: SigmaAlgebra):
-        self._rv1 = rv1
-        self._rv2 = rv2
-        self._sigma_algebra = sigma_algebra
+    def __init__(self, *cdfs: CumulativeDistributionFunction, mix_func: Callable[[Iterable[float]], float]):
+        self._cdfs = cdfs
+        self._mix_func = mix_func
 
     def evaluate(self, value: float) -> UnitSegmentValue:
         occurences = 0
-        for event1, event2 in itertools.product(self._sigma_algebra.universe.events, self._sigma_algebra.universe.events):
-            if self._rv1.evaluate(event1) + self._rv2.evaluate(event2) <= value:
+        total = 0
+        for events in itertools.product(*(cdf._sigma_algebra.universe.events for cdf in self._cdfs)):
+            cdf_event_pairs = zip(self._cdfs, events)
+            total += 1
+            if self._mix_func((cdf._random_variable.evaluate(event) for cdf, event in cdf_event_pairs)) <= value:
                 occurences += 1
 
-        return UnitSegmentValue(float(occurences) / (len(self._sigma_algebra.universe.events) * len(self._sigma_algebra.universe.events)))
-
-    def make_probability_density(self, start: float, stop: float, step: float) -> Dict[float, UnitSegmentValue]:
-        density = dict()
-        count = (stop - start) / step
-        for index in range(int(count)):
-            value_prev = step * index
-            value_next = step * (index + 1)
-            diff = self.evaluate(value_next).value - self.evaluate(value_prev).value
-            if diff != 0:
-                density[value_next] = UnitSegmentValue(diff)
-
-        return density
+        return UnitSegmentValue(float(occurences) / total)
 
     def _run(self) -> Event:
         target = random.random()
