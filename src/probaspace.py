@@ -5,7 +5,7 @@ import math
 from collections import defaultdict
 from numbers import Number
 import random
-from typing import Callable, Iterable, Any, Dict, List
+from typing import Callable, Iterable, Any, Dict, List, Tuple
 
 
 class UnitSegmentValue(object):
@@ -162,6 +162,10 @@ class CumulativeDistributionFunction(object):
     def evaluate(self, value: float) -> UnitSegmentValue:
         pass
 
+    @property
+    def events(self) -> List[Event]:
+        pass
+
 
 class SimpleCumulativeDistributionFunction(CumulativeDistributionFunction):
 
@@ -171,12 +175,16 @@ class SimpleCumulativeDistributionFunction(CumulativeDistributionFunction):
 
     def evaluate(self, value: float) -> UnitSegmentValue:
         events = list()
-        for event in self._sigma_algebra.universe.events:
+        for event in self.events:
             if self._random_variable.evaluate(event) <= value:
                 events.append(event)
 
         return Probability(self._sigma_algebra).evaluate(SigmaAlgebraItem(events))
 
+    @property
+    def events(self) -> List[Event]:
+        return self._sigma_algebra.universe.events
+        
     def __repr__(self) -> str:
         return str({event: '{:.2f} %'.format(100. * self.evaluate(float(event.name)).value) for event in self._sigma_algebra.universe.events})
 
@@ -190,7 +198,7 @@ class CombinedCumulativeDistributionFunction(CumulativeDistributionFunction):
     def evaluate(self, value: float) -> UnitSegmentValue:
         occurences = 0
         total = 0
-        for events in itertools.product(*(cdf._sigma_algebra.universe.events for cdf in self._cdfs)):
+        for events in itertools.product(*(cdf.events for cdf in self._cdfs)):
             cdf_event_pairs = zip(self._cdfs, events)
             total += 1
             if self._mix_func((cdf._random_variable.evaluate(event) for cdf, event in cdf_event_pairs)) <= value:
@@ -198,6 +206,10 @@ class CombinedCumulativeDistributionFunction(CumulativeDistributionFunction):
 
         return UnitSegmentValue(float(occurences) / total)
 
+    @property
+    def events(self) -> List[Tuple[Event]]:
+        return list(itertools.product(*(cdf.events for cdf in self._cdfs)))
+        
     def _run(self) -> Event:
         target = random.random()
         target_event = None
