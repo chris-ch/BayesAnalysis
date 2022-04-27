@@ -7,40 +7,66 @@ import probaspace
 import bayes
 
 
-def dice(count_side: int) -> Callable[[probaspace.Event], float]:
-    def likelihood(event: probaspace.Event):
-        if int(event.name) > count_side:
-            return 0.
-        else:
-            return 1. / float(count_side)
-
-    return likelihood
-
-
 class ProbaspaceTest(unittest.TestCase):
 
     def test_dice(self):
         estimator = bayes.BayesAnalysis()
-        #
-        # estimator.create_hypothesis(Hypothesis("Smarties 94", smarties94), 0.5)
-        # estimator.create_hypothesis(Hypothesis("Smarties 96", smarties96), 0.5)
-        # estimator.add_event('R')
-        # estimator.add_event('G')
+        def dice(count_side: int) -> Callable[[probaspace.Event], float]:
+            def likelihood(event: probaspace.Event):
+                if int(event.name) > count_side:
+                    return 0.
+                else:
+                    return 1. / float(count_side)
+
+            return likelihood
         sides = probaspace.Universe.from_labels('1', '2', '3', '4', '5', '6')
         d4 = sides.create_random_variable_single("Dice 4", likelihood=dice(4))
         d6 = sides.create_random_variable_single("Dice 6", likelihood=dice(6))
         d8 = sides.create_random_variable_single("Dice 8", likelihood=dice(8))
         d12 = sides.create_random_variable_single("Dice 12", likelihood=dice(12))
         d20 = sides.create_random_variable_single("Dice 20", likelihood=dice(20))
-
         estimator.define_uninformed(sides, d4, d6, d8, d12, d20)
-
         estimator.add_event(probaspace.Event('3'))
         estimator.add_event(probaspace.Event('4'))
         estimator.add_event(probaspace.Event('8'))
         estimator.add_event(probaspace.Event('3'))
         estimator.add_event(probaspace.Event('1'))
         self.assertAlmostEqual(estimator.evaluate(d12), 0.11532016915)
+
+    def test_joint_proba(self):
+        sides_6 = probaspace.Universe.from_labels('1', '2', '3', '4', '5', '6')
+
+        def die(item: probaspace.Event) -> int:
+            return int(str(item))
+
+        sa = probaspace.make_sigma_algebra_full(sides_6)
+        rv_die6 = probaspace.RandomVariable('rv', event_mapper=die, universe=sides_6)
+
+        dist_die6 = probaspace.SimpleDistributionFunction(rv_die6, sa)
+        self.assertAlmostEqual(dist_die6.evaluate(-1.).value, 0.)
+        self.assertAlmostEqual(dist_die6.evaluate(0.).value, 0.)
+        self.assertAlmostEqual(dist_die6.evaluate(1.).value, 0.1666666667)
+        self.assertAlmostEqual(dist_die6.evaluate(2.).value, 0.3333333333)
+        self.assertAlmostEqual(dist_die6.evaluate(3.).value, 0.5)
+        self.assertAlmostEqual(dist_die6.evaluate(4.).value, 0.6666666667)
+        self.assertAlmostEqual(dist_die6.evaluate(5.).value, 0.8333333333)
+        self.assertAlmostEqual(dist_die6.evaluate(6.).value, 1.0)
+        self.assertAlmostEqual(dist_die6.evaluate(7.).value, 1.0)
+
+        pdf = probaspace.make_probability_density(dist_die6, 0., 6., 30)
+        self.assertAlmostEqual(pdf[1.0].value, 0.1666666667)
+        self.assertAlmostEqual(pdf[2.0].value, 0.1666666667)
+        self.assertAlmostEqual(pdf[3.0].value, 0.1666666667)
+        self.assertAlmostEqual(pdf[4.0].value, 0.1666666667)
+        self.assertAlmostEqual(pdf[5.0].value, 0.1666666667)
+        self.assertAlmostEqual(pdf[6.0].value, 0.1666666667)
+
+        joint = probaspace.JointDistributionFunction(rv_die6, rv_die6, sigma_algebra=sa)
+        self.assertAlmostEqual(joint.evaluate(1., 1.).value, 0.02777778)
+        self.assertAlmostEqual(joint.evaluate(2., 1.).value, 0.05555556)
+        self.assertAlmostEqual(joint.evaluate(1., 3.).value, 0.08333333)
+        self.assertAlmostEqual(joint.evaluate(4., 4.).value, 0.44444444)
+        self.assertAlmostEqual(joint.evaluate(5., 2.).value, 0.27777778)
 
 
 if __name__ == '__main__':

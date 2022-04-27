@@ -2,6 +2,7 @@ import collections
 import itertools
 import logging
 import math
+import operator
 from collections import defaultdict
 from numbers import Number
 import random
@@ -126,6 +127,8 @@ class SigmaAlgebraItem(object):
 
 
 class SigmaAlgebra(object):
+    """
+    """
 
     def __init__(self, universe: Universe, events_set: Iterable[Iterable[Event]]):
         self._universe = universe
@@ -144,6 +147,9 @@ class SigmaAlgebra(object):
 
 
 class Probability(object):
+    """
+    Function P : 𝓕 → [0, 1] with the properties that P(Ω) = 1 and P(A ∪ B) = P(A) + P(B) if A ∩ B = ∅
+    """
 
     def __init__(self, sigma_algebra: SigmaAlgebra):
         self._sigma_algebra = sigma_algebra
@@ -153,6 +159,9 @@ class Probability(object):
 
 
 class RandomVariable(object):
+    """
+    Function X : Ω → ℝ with the property that { ω ∈ Ω : X(ω) ≤ x } ∈ 𝓕, ∀x ℝ
+    """
 
     def __init__(self, description: str, event_mapper: Callable[[Event], float], universe: Universe):
         self._description = description
@@ -175,27 +184,11 @@ class RandomVariable(object):
 
 
 class DistributionFunction(object):
-
+    """
+    Function Fₓ : ℝ → [0, 1] defined as Fₓ(x) = P( { ω ∈ Ω : X(ω) ≤ x } )
+    """
     def evaluate(self, value: float) -> UnitSegmentValue:
         return UnitSegmentValue(0.)
-
-
-class SimpleDistributionFunction(DistributionFunction):
-
-    def __init__(self, random_variable: RandomVariable, sigma_algebra: SigmaAlgebra):
-        self._random_variable = random_variable
-        self._sigma_algebra = sigma_algebra
-
-    def evaluate(self, value: float) -> UnitSegmentValue:
-        events = list()
-        for event in self._sigma_algebra.universe.events:
-            if self._random_variable.evaluate(event) <= value:
-                events.append(event)
-
-        return Probability(self._sigma_algebra).evaluate(SigmaAlgebraItem(events))
-
-    def __repr__(self) -> str:
-        return str({event: '{:.2f} %'.format(100. * self.evaluate(float(event.name)).value) for event in self._sigma_algebra.universe.events})
 
 
 def is_tuple_less_than(t1: Tuple[float], t2: Tuple[float]) -> bool:
@@ -208,39 +201,48 @@ class JointDistributionFunction(DistributionFunction):
         self._rvs = rvs
         self._sigma_algebra = sigma_algebra
 
-    def evaluate(self, values: Tuple[float]) -> UnitSegmentValue:
+    def evaluate(self, *random_values: float) -> UnitSegmentValue:
+        values = tuple(random_values)
         if len(values) != len(self._rvs):
             raise ValueError('{} has wrong size, expected {}'.format(values, len(self._rvs)))
 
-        occurences = 0
-        total = 0
-        for events in itertools.product(*(self._sigma_algebra.universe.events for _ in self._rvs)):
-            total += 1
-            if is_tuple_less_than(tuple(float(event.name) for event in events), values):
-                occurences += 1
-
-        return UnitSegmentValue(float(occurences) / total)
+        vectors = (vector for vector in itertools.product(*(self._sigma_algebra.universe.events for _ in self._rvs)) if is_tuple_less_than(tuple(float(event.name) for event in vector), values))
+        return UnitSegmentValue(cardinality(vectors) / len(self._sigma_algebra.universe.events) ** len(self._rvs))
 
     def __repr__(self) -> str:
-        return str({events: '{:.2f} %'.format(100. * self.evaluate(tuple(float(event.name) for event in events)).value) for events in itertools.product(*(self._sigma_algebra.universe.events for _ in self._rvs))})
+        return str({events: '{:.2f} %'.format(100. * self.evaluate(*(float(event.name) for event in events)).value) for events in itertools.product(*(self._sigma_algebra.universe.events for _ in self._rvs))})
+
+
+class SimpleDistributionFunction(JointDistributionFunction):
+
+    def __init__(self, random_variable: RandomVariable, sigma_algebra: SigmaAlgebra):
+        super().__init__(random_variable, sigma_algebra=sigma_algebra)
+
+    def evaluate(self, value: float) -> UnitSegmentValue:
+        events = (event for event in self._sigma_algebra.universe.events if self._rvs[0].evaluate(event) <= value)
+        return Probability(self._sigma_algebra).evaluate(SigmaAlgebraItem(events))
+
+    def __repr__(self) -> str:
+        return str({event: '{:.2f} %'.format(100. * self.evaluate(float(event.name)).value) for event in self._sigma_algebra.universe.events})
 
 
 class MixedDistributionFunction(DistributionFunction):
 
-    def __init__(self, *cdfs: SimpleDistributionFunction, mix_func: Callable[[Iterable[float]], float]):
-        self._cdfs = cdfs
+    def __init__(self, *rvs: RandomVariable, mix_func: Callable[[Iterable[float]], float], sigma_algebra: SigmaAlgebra):
+        self._rvs = rvs
+        self._sigma_algebra = sigma_algebra
         self._mix_func = mix_func
 
     def evaluate(self, value: float) -> UnitSegmentValue:
-        occurences = 0
+        occurrences = 0
         total = 0
-        for events in itertools.product(*(cdf._sigma_algebra.universe.events for cdf in self._cdfs)):
-            cdf_event_pairs = zip(self._cdfs, events)
+        for events in itertools.product(*(self._sigma_algebra.universe.events for _ in self._rvs)):
+            rv_event_pairs = zip(self._rvs, events)
             total += 1
-            if self._mix_func((cdf._random_variable.evaluate(event) for cdf, event in cdf_event_pairs)) <= value:
-                occurences += 1
+            if self._mix_func((rv.evaluate(event) for rv, event in rv_event_pairs)) <= value:
+                occurrences += 1
 
-        return UnitSegmentValue(float(occurences) / total)
+        return UnitSegmentValue(float(occurrences) / total)
 
 
 def make_sigma_algebra_full(universe: Universe) -> SigmaAlgebra:

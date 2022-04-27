@@ -26,21 +26,8 @@ def main():
     for item in sa.items:
         logging.info('{}: {}'.format(item, proba.evaluate(item)))
 
-    def die(item: probaspace.Event) -> int:
-        return int(str(item))
-
-    rv_die6 = probaspace.RandomVariable('rv', event_mapper=die, universe=sides_6)
-    dist_die6 = probaspace.SimpleDistributionFunction(rv_die6, sa)
-    for val in (float(i) / 5. for i in range(0, 35)):
-        logging.info('cdf({}) = {}'.format(val, dist_die6.evaluate(val)))
-
-    logging.info('dist_die6: {}'.format(probaspace.make_probability_density(dist_die6, 0., 6.5, 35)))
-
-    joint = probaspace.JointDistributionFunction(rv_die6, rv_die6, sigma_algebra=sa)
-    logging.info('joint distribution {}'.format(joint))
-
     logging.info('----------- combined CDF sum 2x d6')
-    dist_2x_die6 = probaspace.MixedDistributionFunction(dist_die6, dist_die6, mix_func=sum)
+    dist_2x_die6 = probaspace.MixedDistributionFunction(rv_die6, rv_die6, mix_func=sum, sigma_algebra=sa)
     for val in (float(i)/ 5. for i in range(0, 65)):
         logging.info('cdf({}) = {}'.format(val, dist_2x_die6.evaluate(val)))
 
@@ -48,7 +35,7 @@ def main():
 
     logging.info('----------- combined CDF max 4x sum 2x d6')
     
-    dist_max_4x_2x_die6 = probaspace.MixedDistributionFunction(dist_2x_die6, dist_2x_die6, dist_2x_die6, dist_2x_die6, mix_func=max)
+    dist_max_4x_2x_die6 = probaspace.MixedDistributionFunction(dist_2x_die6, dist_2x_die6, dist_2x_die6, dist_2x_die6, mix_func=max, sigma_algebra=sa)
     logging.info('dist_2x_die6: {}'.format(probaspace.make_probability_density(dist_max_4x_2x_die6, 0., 12.5, 65)))
 
     #logging.info('----------- probability mass sum')
