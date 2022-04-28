@@ -19,12 +19,10 @@ def smarties96(event: probaspace.Event) -> float:
 
 def main():
     sides_6 = probaspace.Universe.from_labels('1', '2', '3', '4', '5', '6')
-    sa = probaspace.make_sigma_algebra_full(sides_6)
-    logging.info(str(sa.items))
-    proba = probaspace.Probability(sa)
-
-    for item in sa.items:
-        logging.info('{}: {}'.format(item, proba.evaluate(item)))
+    ps = probaspace.make_space_full(sides_6)
+    logging.info(str(ps.sigma_algebra.items))
+    for item in ps.sigma_algebra.items:
+        logging.info('{}: {}'.format(item, ps.probability.evaluate(item)))
 
     logging.info('----------- combined CDF sum 2x d6')
     dist_2x_die6 = probaspace.MixedDistributionFunction(rv_die6, rv_die6, mix_func=sum, sigma_algebra=sa)
@@ -35,7 +33,7 @@ def main():
 
     logging.info('----------- combined CDF max 4x sum 2x d6')
     
-    dist_max_4x_2x_die6 = probaspace.MixedDistributionFunction(dist_2x_die6, dist_2x_die6, dist_2x_die6, dist_2x_die6, mix_func=max, sigma_algebra=sa)
+    dist_max_4x_2x_die6 = probaspace.MixedDistributionFunction(dist_2x_die6, dist_2x_die6, dist_2x_die6, dist_2x_die6, mix_func=max)
     logging.info('dist_2x_die6: {}'.format(probaspace.make_probability_density(dist_max_4x_2x_die6, 0., 12.5, 65)))
 
     #logging.info('----------- probability mass sum')
