@@ -63,6 +63,27 @@ class ProbaSpaceTest(unittest.TestCase):
         self.assertAlmostEqual(pdf[5.0].value, 0.1666666667)
         self.assertAlmostEqual(pdf[6.0].value, 0.1666666667)
 
+    def test_biased_proba(self):
+        coin = probaspace.Universe.from_labels('H', 'T')
+
+        def coin_value(item: probaspace.Event) -> int:
+            if item.name == 'H':
+                return 0
+            else:
+                return 1
+
+        ps = probaspace.make_space_full(coin)
+        rv_coin = probaspace.RandomVariable('rv', event_mapper=coin_value, space=ps)
+
+        dist_coin = probaspace.SimpleDistributionFunction(rv_coin)
+        self.assertAlmostEqual(dist_coin.evaluate(-0.1).value, 0.0)
+        self.assertAlmostEqual(dist_coin.evaluate(0.1).value, 0.5)
+        self.assertAlmostEqual(dist_coin.evaluate(0.5).value, 0.5)
+        self.assertAlmostEqual(dist_coin.evaluate(0.9).value, 0.5)
+        self.assertAlmostEqual(dist_coin.evaluate(1.).value, 1.0)
+        self.assertAlmostEqual(dist_coin.evaluate(1.1).value, 1.0)
+
+
     def test_joint_proba(self):
         sides_6 = probaspace.Universe.from_labels('1', '2', '3', '4', '5', '6')
 
@@ -70,15 +91,15 @@ class ProbaSpaceTest(unittest.TestCase):
             return int(str(item))
 
         sa = probaspace.SigmaAlgebra(sides_6, probaspace.powerset(sides_6.events))
-        ps = probaspace.ProbabilitySpace(sa, probaspace.JointProbability(sa))
+        ps = probaspace.ProbabilitySpace(sa, probaspace.UnbiasedProbability(sa))
         rv_die6 = probaspace.RandomVariable('rv', event_mapper=die, space=ps)
 
         joint = probaspace.JointDistributionFunction(rv_die6, rv_die6)
-        self.assertAlmostEqual(joint.evaluate(4., 4.).value, 0.44444444)
-        self.assertAlmostEqual(joint.evaluate(2., 1.).value, 0.05555556)
-        self.assertAlmostEqual(joint.evaluate(1., 1.).value, 0.02777778)
-        self.assertAlmostEqual(joint.evaluate(1., 3.).value, 0.08333333)
-        self.assertAlmostEqual(joint.evaluate(5., 2.).value, 0.27777778)
+        self.assertAlmostEqual(joint.evaluate(4., 4.), 0.44444444)
+        self.assertAlmostEqual(joint.evaluate(2., 1.), 0.05555556)
+        self.assertAlmostEqual(joint.evaluate(1., 1.), 0.02777778)
+        self.assertAlmostEqual(joint.evaluate(1., 3.), 0.08333333)
+        self.assertAlmostEqual(joint.evaluate(5., 2.), 0.27777778)
 
 
 if __name__ == '__main__':

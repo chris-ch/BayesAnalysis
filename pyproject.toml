@@ -1,12 +1,10 @@
-
+[tool]
 [tool.poetry]
-name = 'BayesAnalyses'
-version = '0.1'
-description = ''
-
+authors = ["Your Name <you@example.com>"]
+description = ""
+name = "BayesAnalyses"
+version = "0.1"
 [tool.poetry.dependencies]
-python = '*'
-
-[tool.poetry.dev-dependcies]
-pytest = '^3.4'
-
+python = "^3.8"
+[tool.poetry.dev-dependencies]
+pytest = "^3.4"

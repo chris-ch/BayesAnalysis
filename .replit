@@ -1,0 +1,2 @@
+language = "python3"
+run = "PYTHONPATH=src python tests/test_probaspace.py"

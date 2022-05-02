@@ -134,29 +134,35 @@ class SigmaAlgebra(object):
         return '<sa>' + repr(list(self.items))
 
 
-class JointProbability(object):
-
-    def __init__(self, *sigma_algebras: SigmaAlgebra):
-        self._sigma_algebras = sigma_algebras
-
-    def evaluate(self, *joint_events: SigmaAlgebraItem) -> UnitRangeValue:
-        product_universes = itertools.product(*(sa.universe.events for sa in self._sigma_algebras))
-        probability = len(joint_events) / cardinality(product_universes)
-        return UnitRangeValue(probability)
-
-
-class Probability(JointProbability):
+class Probability(object):
     """
     Function P : 𝓕 → [0, 1] with the properties that P(Ω) = 1 and P(A ∪ B) = P(A) + P(B) if A ∩ B = ∅
     """
 
+    def __init__(self, sigma_algebra: SigmaAlgebra):
+        self._sigma_algebra = sigma_algebra
+
     def evaluate(self, sigma_algebra_item: SigmaAlgebraItem) -> UnitRangeValue:
-        return super().evaluate(sigma_algebra_item)
+        probability = len(sigma_algebra_item) / cardinality(self._sigma_algebra.universe)
+        return UnitRangeValue(probability)
+
+
+class UnbiasedProbability(object):
+    """
+    Function P : 𝓕 → [0, 1] with the properties that P(Ω) = 1 and P(A ∪ B) = P(A) + P(B) if A ∩ B = ∅
+    """
+
+    def __init__(self, sigma_algebra: SigmaAlgebra):
+        self._sigma_algebra = sigma_algebra
+
+    def evaluate(self, sigma_algebra_item: SigmaAlgebraItem) -> UnitRangeValue:
+        probability = float(len(sigma_algebra_item.events)) / self._sigma_algebra.universe.size()
+        return UnitRangeValue(probability)
 
 
 class ProbabilitySpace(object):
 
-    def __init__(self, sigma_algebra: SigmaAlgebra, probability: JointProbability):
+    def __init__(self, sigma_algebra: SigmaAlgebra, probability: Probability):
         self._sigma_algebra = sigma_algebra
         self._probability = probability
 
@@ -219,28 +225,27 @@ class JointDistributionFunction(DistributionFunction):
     def __init__(self, *rvs: RandomVariable):
         self._rvs = rvs
 
-    def evaluate(self, *random_values: float) -> UnitRangeValue:
-        values = tuple(random_values)
+    def evaluate(self, *vector: float) -> UnitRangeValue:
+        values = tuple(vector)
         if len(values) != len(self._rvs):
             raise ValueError('{} has wrong size, expected {}'.format(values, len(self._rvs)))
 
         product_universes = itertools.product(*(rv.universe.events for rv in self._rvs))
-        vectors = list(vector for vector in product_universes if is_tuple_less_than(tuple(float(event.name) for event in vector), values))
-        sas = list(rv.space.sigma_algebra for rv in self._rvs)
-        prob = JointProbability(*sas)
-        return prob.evaluate(*[SigmaAlgebraItem(vector) for vector in vectors])
+        vectors = list(vector for vector in product_universes if is_tuple_less_than(tuple(rv.evaluate(event) for event, rv in zip(vector, self._rvs)), values))
+        return len(vectors) / cardinality(itertools.product(*(rv.universe.events for rv in self._rvs)))
 
     def __repr__(self) -> str:
         return str({events: '{:.2f} %'.format(100. * self.evaluate(*(float(event.name) for event in events)).value) for events in itertools.product(*(rv.universe.events for rv in self._rvs))})
 
 
-class SimpleDistributionFunction(JointDistributionFunction):
+class SimpleDistributionFunction(object):
 
     def __init__(self, random_variable: RandomVariable):
-        super().__init__(random_variable)
+        self._rv = random_variable
 
     def evaluate(self, value: float) -> UnitRangeValue:
-        return super().evaluate(value)
+        events = SigmaAlgebraItem(event for event in self._rv.space.universe.events if self._rv.evaluate(event) <= value)
+        return self._rv.space.probability.evaluate(events)
 
 
 class MixedDistributionFunction(DistributionFunction):
@@ -263,7 +268,7 @@ class MixedDistributionFunction(DistributionFunction):
 
 def make_space_full(universe: Universe) -> ProbabilitySpace:
     sa = SigmaAlgebra(universe, powerset(universe.events))
-    return ProbabilitySpace(sa, Probability(sa))
+    return ProbabilitySpace(sa, UnbiasedProbability(sa))
 
 
 def make_probability_density(distribution: Union[SimpleDistributionFunction, MixedDistributionFunction], start: float, stop: float, count: int) -> Dict[float, UnitRangeValue]:
