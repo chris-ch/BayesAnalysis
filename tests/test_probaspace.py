@@ -83,15 +83,16 @@ class ProbaSpaceTest(unittest.TestCase):
         self.assertAlmostEqual(dist_coin1.evaluate(1.1).value, 1.0)
 
         sa = probaspace.SigmaAlgebra(coin, probaspace.powerset(coin.events))
+
         def probabilities(sai: probaspace.SigmaAlgebraItem):
             output = 0.
-            if sai.set() == {'H'}:
+            if sai.set() == {probaspace.Event('H')}:
                 output = 0.2
 
-            elif sai.set() == {'T'}:
+            elif sai.set() == {probaspace.Event('T')}:
                 output = 0.8
 
-            elif sai.set() == {'H', 'T'}:
+            elif sai.set() == {probaspace.Event('T'), probaspace.Event('H')}:
                 output = 1.0
             
             return probaspace.UnitRangeValue(output)
