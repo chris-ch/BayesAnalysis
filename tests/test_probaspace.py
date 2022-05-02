@@ -72,16 +72,39 @@ class ProbaSpaceTest(unittest.TestCase):
             else:
                 return 1
 
-        ps = probaspace.make_space_full(coin)
-        rv_coin = probaspace.RandomVariable('rv', event_mapper=coin_value, space=ps)
+        ps1 = probaspace.make_space_full(coin)
+        rv_coin1 = probaspace.RandomVariable('rv1', event_mapper=coin_value, space=ps1)
+        dist_coin1 = probaspace.SimpleDistributionFunction(rv_coin1)
+        self.assertAlmostEqual(dist_coin1.evaluate(-0.1).value, 0.0)
+        self.assertAlmostEqual(dist_coin1.evaluate(0.1).value, 0.5)
+        self.assertAlmostEqual(dist_coin1.evaluate(0.5).value, 0.5)
+        self.assertAlmostEqual(dist_coin1.evaluate(0.9).value, 0.5)
+        self.assertAlmostEqual(dist_coin1.evaluate(1.).value, 1.0)
+        self.assertAlmostEqual(dist_coin1.evaluate(1.1).value, 1.0)
 
-        dist_coin = probaspace.SimpleDistributionFunction(rv_coin)
-        self.assertAlmostEqual(dist_coin.evaluate(-0.1).value, 0.0)
-        self.assertAlmostEqual(dist_coin.evaluate(0.1).value, 0.5)
-        self.assertAlmostEqual(dist_coin.evaluate(0.5).value, 0.5)
-        self.assertAlmostEqual(dist_coin.evaluate(0.9).value, 0.5)
-        self.assertAlmostEqual(dist_coin.evaluate(1.).value, 1.0)
-        self.assertAlmostEqual(dist_coin.evaluate(1.1).value, 1.0)
+        sa = probaspace.SigmaAlgebra(coin, probaspace.powerset(coin.events))
+        def probabilities(sai: probaspace.SigmaAlgebraItem):
+            output = 0.
+            if sai.set() == {'H'}:
+                output = 0.2
+
+            elif sai.set() == {'T'}:
+                output = 0.8
+
+            elif sai.set() == {'H', 'T'}:
+                output = 1.0
+            
+            return probaspace.UnitRangeValue(output)
+            
+        ps2 = probaspace.ProbabilitySpace(sa, probaspace.Probability(sa, probabilities))
+        rv_coin2 = probaspace.RandomVariable('rv2', event_mapper=coin_value, space=ps2)
+        dist_coin2 = probaspace.SimpleDistributionFunction(rv_coin2)
+        self.assertAlmostEqual(dist_coin2.evaluate(-0.1).value, 0.0)
+        self.assertAlmostEqual(dist_coin2.evaluate(0.1).value, 0.2)
+        self.assertAlmostEqual(dist_coin2.evaluate(0.5).value, 0.2)
+        self.assertAlmostEqual(dist_coin2.evaluate(0.9).value, 0.2)
+        self.assertAlmostEqual(dist_coin2.evaluate(1.).value, 1.0)
+        self.assertAlmostEqual(dist_coin2.evaluate(1.1).value, 1.0)
 
 
     def test_joint_proba(self):

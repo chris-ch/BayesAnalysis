@@ -1,6 +1,6 @@
 import collections
 import itertools
-from typing import Callable, Iterable, Any, Dict, List, Tuple, Union
+from typing import Callable, Iterable, Any, Dict, List, Tuple, Union, Set
 
 
 class UnitRangeValue(object):
@@ -110,6 +110,9 @@ class SigmaAlgebraItem(object):
     def events(self) -> List[Event]:
         return self._events
 
+    def set(self) -> Set[Event]:
+        return set(self.events)
+        
     def __repr__(self):
         return '<Events:{}>'.format(','.join((event.name for event in self.events)))
 
@@ -139,25 +142,21 @@ class Probability(object):
     Function P : 𝓕 → [0, 1] with the properties that P(Ω) = 1 and P(A ∪ B) = P(A) + P(B) if A ∩ B = ∅
     """
 
-    def __init__(self, sigma_algebra: SigmaAlgebra):
+    def __init__(self, sigma_algebra: SigmaAlgebra, mapping: Callable[[SigmaAlgebraItem], UnitRangeValue]):
         self._sigma_algebra = sigma_algebra
+        self._mapping = mapping
 
     def evaluate(self, sigma_algebra_item: SigmaAlgebraItem) -> UnitRangeValue:
-        probability = len(sigma_algebra_item) / cardinality(self._sigma_algebra.universe)
-        return UnitRangeValue(probability)
+        return self._mapping(sigma_algebra_item)
 
 
-class UnbiasedProbability(object):
+class UnbiasedProbability(Probability):
     """
     Function P : 𝓕 → [0, 1] with the properties that P(Ω) = 1 and P(A ∪ B) = P(A) + P(B) if A ∩ B = ∅
     """
 
     def __init__(self, sigma_algebra: SigmaAlgebra):
-        self._sigma_algebra = sigma_algebra
-
-    def evaluate(self, sigma_algebra_item: SigmaAlgebraItem) -> UnitRangeValue:
-        probability = float(len(sigma_algebra_item.events)) / self._sigma_algebra.universe.size()
-        return UnitRangeValue(probability)
+        super().__init__(sigma_algebra, lambda sai: UnitRangeValue(float(len(sai.events)) / sigma_algebra.universe.size()))
 
 
 class ProbabilitySpace(object):
@@ -208,19 +207,11 @@ class RandomVariable(object):
         return self.description
 
 
-class DistributionFunction(object):
-    """
-    Function Fₓ : ℝ → [0, 1] defined as Fₓ(x) = P( { ω ∈ Ω : X(ω) ≤ x } )
-    """
-    def evaluate(self, value: float) -> UnitRangeValue:
-        return UnitRangeValue(0.)
-
-
 def is_tuple_less_than(t1: Tuple[float], t2: Tuple[float]) -> bool:
     return sum((True for v1, v2 in zip(t1, t2) if v1 > v2)) == 0
 
 
-class JointDistributionFunction(DistributionFunction):
+class JointDistributionFunction(object):
 
     def __init__(self, *rvs: RandomVariable):
         self._rvs = rvs
@@ -248,7 +239,7 @@ class SimpleDistributionFunction(object):
         return self._rv.space.probability.evaluate(events)
 
 
-class MixedDistributionFunction(DistributionFunction):
+class MixedDistributionFunction(object):
 
     def __init__(self, *rvs: RandomVariable, mix_func: Callable[[Iterable[float]], float]):
         self._rvs = rvs
