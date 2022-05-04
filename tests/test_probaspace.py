@@ -1,6 +1,7 @@
 import logging
 import os
 import unittest
+from collections import defaultdict
 from typing import Callable
 
 import probaspace
@@ -107,7 +108,6 @@ class ProbaSpaceTest(unittest.TestCase):
         self.assertAlmostEqual(dist_coin2.evaluate(1.).value, 1.0)
         self.assertAlmostEqual(dist_coin2.evaluate(1.1).value, 1.0)
 
-
     def test_joint_proba(self):
         sides_6 = probaspace.Universe.from_labels('1', '2', '3', '4', '5', '6')
 
@@ -119,11 +119,78 @@ class ProbaSpaceTest(unittest.TestCase):
         rv_die6 = probaspace.RandomVariable('rv', event_mapper=die, space=ps)
 
         joint = probaspace.JointDistributionFunction(rv_die6, rv_die6)
-        self.assertAlmostEqual(joint.evaluate(4., 4.), 0.44444444)
-        self.assertAlmostEqual(joint.evaluate(2., 1.), 0.05555556)
-        self.assertAlmostEqual(joint.evaluate(1., 1.), 0.02777778)
-        self.assertAlmostEqual(joint.evaluate(1., 3.), 0.08333333)
-        self.assertAlmostEqual(joint.evaluate(5., 2.), 0.27777778)
+        self.assertAlmostEqual(joint.evaluate(4., 4.).value, 0.44444444)
+        self.assertAlmostEqual(joint.evaluate(2., 1.).value, 0.05555556)
+        self.assertAlmostEqual(joint.evaluate(1., 1.).value, 0.02777778)
+        self.assertAlmostEqual(joint.evaluate(1., 3.).value, 0.08333333)
+        self.assertAlmostEqual(joint.evaluate(5., 2.).value, 0.27777778)
+
+        self.assertAlmostEqual(rv_die6.expectancy(), 3.5)
+        self.assertAlmostEqual(rv_die6.variance(), 2.91666667)
+
+    def test_double_dice(self):
+
+        def die(item: probaspace.Event) -> int:
+            return int(str(item))
+
+        sides_6 = probaspace.Universe.from_labels('1', '2', '3', '4', '5', '6')
+        ps = probaspace.make_space_full(sides_6)
+        rv_die6 = probaspace.RandomVariable('rv', event_mapper=die, space=ps)
+        logging.info('----------- combined CDF sum 2x d6')
+
+        rv_2x_die6 = probaspace.MixedRandomVariable(rv_die6, rv_die6, mix_func=sum)
+        dist_2x_die6 = probaspace.SimpleDistributionFunction(rv_2x_die6)
+
+        self.assertAlmostEqual(dist_2x_die6.evaluate(1).value, 0.)
+        self.assertAlmostEqual(dist_2x_die6.evaluate(2).value, 0.02777776)
+        self.assertAlmostEqual(dist_2x_die6.evaluate(3).value, 0.08333333)
+        self.assertAlmostEqual(dist_2x_die6.evaluate(4).value, 0.16666666)
+        self.assertAlmostEqual(dist_2x_die6.evaluate(5).value, 0.27777778)
+        self.assertAlmostEqual(dist_2x_die6.evaluate(6).value, 0.41666667)
+        self.assertAlmostEqual(dist_2x_die6.evaluate(7).value, 0.58333334)
+        self.assertAlmostEqual(dist_2x_die6.evaluate(8).value, 0.72222222)
+        self.assertAlmostEqual(dist_2x_die6.evaluate(9).value, 0.83333334)
+        self.assertAlmostEqual(dist_2x_die6.evaluate(10).value, 0.91666666)
+        self.assertAlmostEqual(dist_2x_die6.evaluate(11).value, 0.97222222)
+        self.assertAlmostEqual(dist_2x_die6.evaluate(12).value, 1.0)
+        self.assertAlmostEqual(dist_2x_die6.evaluate(13).value, 1.0)
+
+        pdf = probaspace.make_probability_density(dist_2x_die6, 1., 13., 100)
+        self.assertAlmostEqual(pdf[2.04].value, 0.0277777777)
+        self.assertAlmostEqual(pdf[5.04].value, 0.111111111111)
+        self.assertAlmostEqual(pdf[6.0].value, 0.1388888889)
+        self.assertAlmostEqual(pdf[7.08].value, 0.166666666667)
+        self.assertAlmostEqual(pdf[8.04].value, 0.1388888889)
+        self.assertAlmostEqual(pdf[10.08].value, 0.0833333333)
+
+        rv_3x_die6 = probaspace.MixedRandomVariable(rv_die6, rv_die6, rv_die6, mix_func=sum)
+        dist_3x_die6 = probaspace.SimpleDistributionFunction(rv_3x_die6)
+
+        pdf2 = probaspace.make_probability_density(dist_3x_die6, 1., 19., 100)
+        self.assertAlmostEqual(pdf2[3.06].value, 0.004629629629629629)
+        self.assertAlmostEqual(pdf2[5.04].value, 0.027777777777777776)
+        self.assertAlmostEqual(pdf2[8.1].value, 0.09722222222)
+        self.assertAlmostEqual(pdf2[11.16].value, 0.125)
+        self.assertAlmostEqual(pdf2[14.04].value, 0.06944444444444453)
+        self.assertAlmostEqual(pdf2[15.12].value, 0.04629629629629628)
+        self.assertAlmostEqual(pdf2[18.0].value, 0.00462962962962965)
+
+        rv_max_2x_2x_die6 = probaspace.MixedRandomVariable(rv_2x_die6, rv_2x_die6, mix_func=max)
+        dist_max_2x_2x_die6 = probaspace.SimpleDistributionFunction(rv_max_2x_2x_die6)
+        pdf3 = round_keys(probaspace.make_probability_density(dist_max_2x_2x_die6, 1., 19., 100))
+        self.assertAlmostEqual(pdf3[2], 0.0007716049382716049)
+        self.assertAlmostEqual(pdf3[6], 0.09645061728395062)
+        self.assertAlmostEqual(pdf3[8], 0.18132716049382713)
+        self.assertAlmostEqual(pdf3[10], 0.14583333333333337)
+        self.assertAlmostEqual(pdf3[12], 0.054783950617283916)
+
+
+def round_keys(pdf):
+    rounded = defaultdict(float)
+    for key in pdf.keys():
+        rounded[int(key)] = pdf[key].value
+
+    return rounded
 
 
 if __name__ == '__main__':

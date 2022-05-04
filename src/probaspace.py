@@ -55,13 +55,30 @@ class Event(object):
         return self._label
 
 
+class CompoundEvent(object):
+
+    def __init__(self, events: Iterable[Event]):
+        self._sub_events = events
+
+    @property
+    def name(self) -> str:
+        return '<{}>'.format(self._sub_events)
+
+    @property
+    def sub_events(self):
+        return self._sub_events
+
+    def __repr__(self) -> str:
+        return self.name
+
+
 class Universe(object):
 
     def __init__(self):
         self._events = list()
 
     @property
-    def events(self) -> List[Event]:
+    def events(self) -> List[Union[Event, CompoundEvent]]:
         return self._events
 
     def size(self) -> int:
@@ -83,16 +100,13 @@ class Universe(object):
 
         return universe
 
-    def fetch(self, event_name: str):
-        events = [event for event in self.events if event.name == event_name]
-        if len(events) == 0:
+    def fetch(self, event_name: str) -> Union[Event, CompoundEvent, None]:
+        try:
+            return next(event for event in self.events if event.name == event_name)
+        except StopIteration:
             return None
-        elif len(events) == 1:
-            return events[0]
-        else:
-            return ValueError('event {} found multiple times'.format(event_name))
 
-    def event(self, event_name: str):
+    def event(self, event_name: str) -> Event:
         event = self.fetch(event_name)
         if event is None:
             event = Event(event_name)
@@ -100,6 +114,8 @@ class Universe(object):
 
         return event
 
+    def add(self, event: Union[Event, CompoundEvent]) -> None:
+        self._events.append(event)
 
 class SigmaAlgebraItem(object):
 
@@ -123,11 +139,11 @@ class SigmaAlgebra(object):
 
     def __init__(self, universe: Universe, events_set: Iterable[Iterable[Event]]):
         self._universe = universe
-        self._items = [SigmaAlgebraItem(events) for events in events_set]
+        self._events_set = events_set
 
     @property
     def items(self) -> Iterable[SigmaAlgebraItem]:
-        return self._items
+        return (SigmaAlgebraItem(events) for events in self._events_set)
 
     @property
     def universe(self) -> Universe:
@@ -206,6 +222,47 @@ class RandomVariable(object):
     def __repr__(self):
         return self.description
 
+    def expectancy(self) -> float:
+        result = 0.
+        for event in self.universe.events:
+            result += self.evaluate(event) * self.space.probability.evaluate(SigmaAlgebraItem({event})).value
+
+        return result
+
+    def variance(self) -> float:
+        result = 0.
+        mu = self.expectancy()
+        for event in self.universe.events:
+            result += ((self.evaluate(event) - mu) ** 2) * self.space.probability.evaluate(SigmaAlgebraItem({event})).value
+
+        return result
+
+
+class MixedRandomVariable(object):
+
+    def __init__(self, *random_vector: Union[RandomVariable, 'MixedRandomVariable'], mix_func: Callable[[Iterable[float]], float]):
+        universe = Universe()
+        for events in itertools.product(*(rv.universe.events for rv in random_vector)):
+            universe.add(CompoundEvent(events))
+
+        # universe: { (a, a), (a, b), (b, a), (b, b) }
+        # { {}, {(a, a)}, {(a, b)}, {(b, a)}, {(b, b)}, {(a, a), (a, b)}, {(a, a), (b, a)}, {(a, a), (b, b)}, ... }
+        # from { {}, {a}, {b},{a, b} }
+        self._space = make_space_full(universe)
+        self._rvs = random_vector
+        self._mix_func = mix_func
+
+    def evaluate(self, event: CompoundEvent) -> float:
+        return self._mix_func((rv.evaluate(evt) for evt, rv in zip(event.sub_events, self._rvs)))
+
+    @property
+    def universe(self) -> Universe:
+        return self._space.universe
+
+    @property
+    def space(self) -> ProbabilitySpace:
+        return self._space
+
 
 def is_tuple_less_than(t1: Tuple[float], t2: Tuple[float]) -> bool:
     return sum((True for v1, v2 in zip(t1, t2) if v1 > v2)) == 0
@@ -213,48 +270,51 @@ def is_tuple_less_than(t1: Tuple[float], t2: Tuple[float]) -> bool:
 
 class JointDistributionFunction(object):
 
-    def __init__(self, *rvs: RandomVariable):
-        self._rvs = rvs
+    def __init__(self, *random_vector: RandomVariable):
+        self._random_vector = random_vector
 
     def evaluate(self, *vector: float) -> UnitRangeValue:
         values = tuple(vector)
-        if len(values) != len(self._rvs):
-            raise ValueError('{} has wrong size, expected {}'.format(values, len(self._rvs)))
+        if len(values) != len(self._random_vector):
+            raise ValueError('{} has wrong size, expected {}'.format(values, len(self._random_vector)))
 
-        product_universes = itertools.product(*(rv.universe.events for rv in self._rvs))
-        vectors = list(vector for vector in product_universes if is_tuple_less_than(tuple(rv.evaluate(event) for event, rv in zip(vector, self._rvs)), values))
-        return len(vectors) / cardinality(itertools.product(*(rv.universe.events for rv in self._rvs)))
+        product_universes = itertools.product(*(rv.universe.events for rv in self._random_vector))
+        vectors = list(vector for vector in product_universes if is_tuple_less_than(tuple(rv.evaluate(event) for event, rv in zip(vector, self._random_vector)), values))
+        return UnitRangeValue(float(len(vectors)) / cardinality(itertools.product(*(rv.universe.events for rv in self._random_vector))))
 
     def __repr__(self) -> str:
-        return str({events: '{:.2f} %'.format(100. * self.evaluate(*(float(event.name) for event in events)).value) for events in itertools.product(*(rv.universe.events for rv in self._rvs))})
+        return str({events: '{:.2f} %'.format(100. * self.evaluate(*(rv.evaluate(event) for event, rv in zip(events, self._random_vector))).value) for events in itertools.product(*(rv.universe.events for rv in self._random_vector))})
 
 
 class SimpleDistributionFunction(object):
 
-    def __init__(self, random_variable: RandomVariable):
+    def __init__(self, random_variable: Union[RandomVariable, MixedRandomVariable]):
         self._rv = random_variable
 
     def evaluate(self, value: float) -> UnitRangeValue:
-        events = SigmaAlgebraItem(event for event in self._rv.space.universe.events if self._rv.evaluate(event) <= value)
+        events = SigmaAlgebraItem(event for event in self._rv.universe.events if self._rv.evaluate(event) <= value)
         return self._rv.space.probability.evaluate(events)
 
 
 class MixedDistributionFunction(object):
 
-    def __init__(self, *rvs: RandomVariable, mix_func: Callable[[Iterable[float]], float]):
-        self._rvs = rvs
+    def __init__(self, *random_vector: RandomVariable, mix_func: Callable[[Iterable[float]], float]):
+        self.random_vector = random_vector
         self._mix_func = mix_func
 
     def evaluate(self, value: float) -> UnitRangeValue:
         occurrences = 0
         total = 0
-        for events in itertools.product(*(self._sigma_algebra.universe.events for _ in self._rvs)):
-            rv_event_pairs = zip(self._rvs, events)
+        for events in self._events():
+            rv_event_pairs = zip(self.random_vector, events)
             total += 1
             if self._mix_func((rv.evaluate(event) for rv, event in rv_event_pairs)) <= value:
                 occurrences += 1
 
         return UnitRangeValue(float(occurrences) / total)
+
+    def _events(self):
+        return itertools.product(*(rv.universe.events for rv in self.random_vector))
 
 
 def make_space_full(universe: Universe) -> ProbabilitySpace:
